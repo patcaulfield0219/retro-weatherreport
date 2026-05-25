@@ -1573,6 +1573,7 @@ class HourlyTimelineSlide(SlideRenderer):
                                     fill="#263421", width=1, tags="slide_content")
 
         points = []
+        temp_labels = []
         for idx, hour in enumerate(hourly[:12]):
             x = chart_x1 + idx * slot_w + slot_w / 2
             temp = hour.get("temp", 0)
@@ -1580,7 +1581,7 @@ class HourlyTimelineSlide(SlideRenderer):
             points.extend([x, y])
 
             pop = hour.get("pop", 0)
-            bar_h = int((chart_y2 - chart_y1) * pop / 100)
+            bar_h = int((chart_y2 - chart_y1) * 0.72 * pop / 100)
             bar_col = Config.TEXT_RED if pop >= 70 else Config.TEXT_YELLOW if pop >= 40 else Config.TEXT_GREEN
             self.draw_rect(x - slot_w * 0.22, chart_y2 - bar_h, x + slot_w * 0.22, chart_y2,
                            fill=bar_col, outline="")
@@ -1590,16 +1591,21 @@ class HourlyTimelineSlide(SlideRenderer):
             self.draw_text(x, chart_y1 - 8, hour.get("icon", ""),
                            color=Config.TEXT_WHITE, size=13, bold=True,
                            font_family=Config.ICON_FONT_FAMILY)
-            self.draw_text(x, y - 12, f"{temp}{Config.TEMP_UNIT}",
-                           color=Config.TEXT_YELLOW, size=7, bold=True)
+            label_y = max(chart_y1 + 14, y - 22)
+            temp_labels.append((x, label_y, f"{temp}{Config.TEMP_UNIT}"))
 
         if len(points) >= 4:
-            self.canvas.create_line(*points, fill=Config.TEXT_ORANGE, width=3,
+            self.canvas.create_line(*points, fill=Config.TEXT_ORANGE, width=2,
                                     smooth=True, tags="slide_content")
             for px, py in zip(points[0::2], points[1::2]):
                 self.canvas.create_oval(px - 3, py - 3, px + 3, py + 3,
                                         fill=Config.TEXT_YELLOW, outline=Config.BG_DARK,
                                         tags="slide_content")
+        for x, label_y, label in temp_labels:
+            self.draw_rect(x - 19, label_y - 8, x + 19, label_y + 8,
+                           fill="#0B100D", outline="")
+            self.draw_text(x, label_y, label,
+                           color=Config.TEXT_YELLOW, size=8, bold=True)
 
         info_y = self.H - 96
         self.draw_rect(38, info_y - 14, self.W - 38, self.H - 46,
