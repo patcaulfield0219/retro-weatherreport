@@ -318,7 +318,7 @@ class WeatherData:
         }
         return descriptions.get(weather_id, "UNKNOWN CONDITIONS")
 
-    def fetch_current_weather(self, include_observations: bool = True) -> dict:
+    def fetch_current_weather(self) -> dict:
         """
         串接 Open-Meteo Forecast API
         端點：https://api.open-meteo.com/v1/forecast
@@ -360,7 +360,7 @@ class WeatherData:
         if isinstance(visibility, (int, float)):
             visibility_km = round(visibility / 1000, 1)
 
-        data = {
+        return {
             "city"        : Config.CITY,
             "country"     : Config.COUNTRY,
             "temp"        : round(current.get("temperature_2m", 0), 1),
@@ -379,13 +379,10 @@ class WeatherData:
             "clouds"      : current.get("cloud_cover", "--"),
             "lat"         : Config.LATITUDE,
             "lon"         : Config.LONGITUDE,
-            "observations": [],
+            "observations": self.fetch_real_observations(
+                                Config.CITY, Config.LATITUDE, Config.LONGITUDE
+                            ),
         }
-        if include_observations:
-            data["observations"] = self.fetch_real_observations(
-                Config.CITY, Config.LATITUDE, Config.LONGITUDE
-            )
-        return data
 
     def fetch_forecast(self) -> list:
         """
@@ -600,21 +597,6 @@ class WeatherData:
                 "ai_ok": False,
                 "error": self._short_error(exc),
             }
-
-    def pending_weather_summary(self, current: dict) -> dict:
-        city = current.get("city", Config.CITY) if current else Config.CITY
-        return {
-            "text": (
-                f"{city} weather data is online.\n"
-                "Corporate language processor is drafting the authorized brief.\n"
-                "Please continue normal productivity while the terminal composes.\n"
-                "Live numbers remain visible on the primary weather boards."
-            ),
-            "source": "BRIEFING SYNCING",
-            "ai_ok": True,
-            "pending": True,
-            "error": "",
-        }
 
     @staticmethod
     def _short_error(exc: Exception) -> str:
@@ -893,7 +875,7 @@ class WeatherData:
             try:
                 if progress_callback:
                     progress_callback(12, "CONTACTING WEATHER RELAY")
-                current  = self.fetch_current_weather(include_observations=False)
+                current  = self.fetch_current_weather()
                 if progress_callback:
                     progress_callback(34, "CURRENT CONDITIONS RECEIVED")
                 try:
@@ -910,8 +892,15 @@ class WeatherData:
                     hourly = list(self.hourly)
                 current["alert"] = self.calculate_alert(current, forecast, hourly)
                 current["radar"] = self.calculate_radar_profile(current, hourly)
-                current["ai_summary"] = self.pending_weather_summary(current)
-                comparison = []
+                if progress_callback:
+                    progress_callback(76, "GENERATING OLLAMA SUMMARY")
+                current["ai_summary"] = self.generate_weather_summary(current, forecast, hourly)
+                try:
+                    if progress_callback:
+                        progress_callback(90, "SYNCING REGIONAL COMPARISON")
+                    comparison = self.fetch_comparison(current)
+                except Exception:
+                    comparison = list(self.comparison)
                 with self._lock:
                     self.current    = current
                     self.forecast   = forecast
@@ -951,77 +940,6 @@ class WeatherData:
 
         thread = threading.Thread(target=_worker, daemon=True, name="WeatherFetcher")
         thread.start()
-
-    def refresh_enhancements_async(self, callback=None, progress_callback=None):
-        """Load slower non-critical data after the first usable weather screen is ready."""
-        with self._lock:
-            current = dict(self.current)
-            forecast = list(self.forecast)
-            hourly = list(self.hourly)
-        city_key = (
-            current.get("city"),
-            current.get("country"),
-            current.get("lat"),
-            current.get("lon"),
-        )
-
-        def _worker():
-            changed = False
-            try:
-                if progress_callback:
-                    progress_callback(70, "COMPOSING TERMINAL BRIEF")
-                summary = self.generate_weather_summary(current, forecast, hourly)
-                with self._lock:
-                    live_key = (
-                        self.current.get("city"),
-                        self.current.get("country"),
-                        self.current.get("lat"),
-                        self.current.get("lon"),
-                    )
-                    if live_key == city_key:
-                        self.current["ai_summary"] = summary
-                        changed = True
-
-                if progress_callback:
-                    progress_callback(82, "SYNCING LOCAL RELAYS")
-                observations = self.fetch_real_observations(
-                    current.get("city", Config.CITY),
-                    current.get("lat", Config.LATITUDE),
-                    current.get("lon", Config.LONGITUDE),
-                )
-                with self._lock:
-                    live_key = (
-                        self.current.get("city"),
-                        self.current.get("country"),
-                        self.current.get("lat"),
-                        self.current.get("lon"),
-                    )
-                    if live_key == city_key:
-                        self.current["observations"] = observations
-                        changed = True
-
-                if progress_callback:
-                    progress_callback(92, "SYNCING REMOTE STATIONS")
-                comparison = self.fetch_comparison(current)
-                with self._lock:
-                    live_key = (
-                        self.current.get("city"),
-                        self.current.get("country"),
-                        self.current.get("lat"),
-                        self.current.get("lon"),
-                    )
-                    if live_key == city_key:
-                        self.comparison = comparison
-                        changed = True
-            except Exception as exc:
-                print(f"[Enhancements] Deferred data unavailable: {exc}")
-            finally:
-                if progress_callback:
-                    progress_callback(100, "AUXILIARY FEEDS READY")
-                if callback:
-                    callback(changed)
-
-        threading.Thread(target=_worker, daemon=True, name="DeferredWeatherEnhancements").start()
 
     def _load_mock_data(self):
         """
@@ -2457,7 +2375,7 @@ class RetroCastApp:
     """
 
     # 看板順序定義（可自由調整）
-    SLIDES = ["current", "hourly", "forecast", "summary", "ad", "comparison", "observations", "radar"]
+    SLIDES = ["current", "summary", "hourly", "ad", "comparison", "observations", "forecast", "radar"]
     SLIDE_NAMES = {
         "current"     : "Current",
         "summary"     : "Summary",
@@ -2776,7 +2694,7 @@ class RetroCastApp:
                 if hasattr(self, "renderers") and "radar" in self.renderers:
                     self.renderers["radar"].clear_location_cache()
                 progress(48, "CONTACTING WEATHER RELAY")
-                current = self.data_manager.fetch_current_weather(include_observations=False)
+                current = self.data_manager.fetch_current_weather()
                 progress(58, "CURRENT CONDITIONS RECEIVED")
                 forecast = self.data_manager.fetch_forecast()
                 progress(68, "DAILY FORECAST RECEIVED")
@@ -2784,16 +2702,22 @@ class RetroCastApp:
                 progress(76, "HOURLY TIMELINE RECEIVED")
                 current["alert"] = self.data_manager.calculate_alert(current, forecast, hourly)
                 current["radar"] = self.data_manager.calculate_radar_profile(current, hourly)
-                current["ai_summary"] = self.data_manager.pending_weather_summary(current)
+                progress(84, "GENERATING OLLAMA SUMMARY")
+                current["ai_summary"] = self.data_manager.generate_weather_summary(current, forecast, hourly)
+                try:
+                    progress(94, "SYNCING REGIONAL COMPARISON")
+                    comparison = self.data_manager.fetch_comparison(current)
+                except Exception:
+                    comparison = [current]
                 with self.data_manager._lock:
                     self.data_manager.current = current
                     self.data_manager.forecast = forecast
                     self.data_manager.hourly = hourly
-                    self.data_manager.comparison = []
+                    self.data_manager.comparison = comparison
                     self.data_manager.last_fetch = datetime.datetime.now()
                     self.data_manager.error_msg = ""
 
-                progress(100, "CORE BROADCAST READY")
+                progress(100, "BROADCAST DATA READY")
                 self.root.after(0, lambda: self._enter_broadcast(place))
             except Exception as e:
                 msg = f"LOCK FAILED: {str(e)[:52]}"
@@ -2966,7 +2890,6 @@ class RetroCastApp:
         if Config.MUSIC_ENABLED:
             self.audio.load_and_play(Config.BGM_PATH)
         self._schedule_api_refresh()
-        self._start_deferred_weather_feeds()
         self.audio.play_cue("enable")
 
     # ── CRT 掃描線覆蓋層 ──────────────────────────────────────
@@ -3550,7 +3473,7 @@ class RetroCastApp:
     def _on_data_refreshed(self, success: bool):
         """API 更新完成的回調（在背景執行緒呼叫，需透過 after 回主執行緒）"""
         def _ui_update():
-            self._set_loading_progress(100, "CORE BROADCAST READY")
+            self._set_loading_progress(100, "BROADCAST DATA READY")
             # 若資料有錯誤訊息，更新跑馬燈
             if self.data_manager.error_msg:
                 self.marquee_messages.insert(0, ("halcyon", f"WARN: {self.data_manager.error_msg}"))
@@ -3575,28 +3498,8 @@ class RetroCastApp:
                 self._schedule_next_slide()
             else:
                 self.show_slide(self.current_slide)
-            self._start_deferred_weather_feeds()
 
         self.root.after(0, _ui_update)  # 確保在主執行緒執行 UI 更新
-
-    def _on_deferred_feeds_refreshed(self, changed: bool):
-        """Update slow-data slides after briefing, observations, or comparison arrive."""
-        def _ui_update():
-            if not changed or not getattr(self, "app_started", False):
-                return
-            self.marquee_messages.insert(0, ("halcyon", "AUXILIARY FEEDS ONLINE: BRIEFING, LOCAL RELAYS, REMOTE STATIONS"))
-            self._refresh_marquee_text()
-            current_key = self.SLIDES[self.current_slide]
-            if current_key in ("summary", "comparison", "observations"):
-                self.show_slide(self.current_slide)
-        self.root.after(0, _ui_update)
-
-    def _start_deferred_weather_feeds(self):
-        """Start slow non-critical weather feeds after the first screen is usable."""
-        self.data_manager.refresh_enhancements_async(
-            callback=self._on_deferred_feeds_refreshed,
-            progress_callback=self._make_loading_progress_callback(),
-        )
 
     def _manual_refresh(self):
         """手動觸發 API 資料更新"""
