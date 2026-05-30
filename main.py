@@ -583,7 +583,7 @@ class WeatherData:
             "Prioritize a useful integrated weather briefing over jokes.\n"
             "Summarize current conditions, comfort, wind, rain risk, and near forecast.\n"
             "Use only the real weather data in the JSON. Do not invent numbers.\n"
-            "Return 5 to 7 compact English lines. Keep it under 120 words.\n"
+            "Return exactly 4 compact English lines, each under 64 characters.\n"
             "No markdown, no bullets, no numbering, no extra explanation.\n\n"
             f"WEATHER DATA JSON:\n{json.dumps(payload, ensure_ascii=False)}"
         )
@@ -596,7 +596,7 @@ class WeatherData:
                     "stream": False,
                     "options": {
                         "temperature": 0.82,
-                        "num_predict": 170,
+                        "num_predict": 120,
                     },
                 },
                 timeout=Config.OLLAMA_TIMEOUT,
@@ -640,8 +640,8 @@ class WeatherData:
         for raw in text.replace("\r", "").split("\n"):
             line = raw.strip().lstrip("-*0123456789. )")
             if line:
-                lines.append(line)
-            if len(lines) >= 12:
+                lines.append(line[:66])
+            if len(lines) >= 4:
                 break
         return "\n".join(lines) if lines else text.strip()[:360]
 
@@ -1330,6 +1330,42 @@ class SlideRenderer:
             justify="center" if anchor == "center" else "left",
             tags=(tag, "slide_content")
         )
+
+    def apply_display_scale(self, tag: str = "slide_content"):
+        """Scale Canvas items created in base 800x600 coordinates."""
+        try:
+            scale = max(1.0, self.canvas.winfo_width() / Config.WIN_WIDTH)
+        except tk.TclError:
+            return
+        if abs(scale - 1.0) < 0.01:
+            return
+        for item in self.canvas.find_withtag(tag):
+            tags = self.canvas.gettags(item)
+            if "display_scaled" in tags:
+                continue
+            self.canvas.scale(item, 0, 0, scale, scale)
+            self._scale_item_style(item, scale)
+            self.canvas.addtag_withtag("display_scaled", item)
+
+    def _scale_item_style(self, item, scale: float):
+        item_type = self.canvas.type(item)
+        if item_type == "text":
+            try:
+                font_spec = self.canvas.itemcget(item, "font")
+                font_obj = tkfont.Font(root=self.canvas.winfo_toplevel(), font=font_spec)
+                family = font_obj.actual("family")
+                size = abs(int(font_obj.actual("size") or 10))
+                weight = font_obj.actual("weight")
+                slant = font_obj.actual("slant")
+                self.canvas.itemconfig(item, font=(family, max(6, int(round(size * scale))), weight, slant))
+            except Exception:
+                pass
+        try:
+            width = self.canvas.itemcget(item, "width")
+            if width not in ("", None):
+                self.canvas.itemconfig(item, width=max(1, float(width) * scale))
+        except Exception:
+            pass
 
     def draw_rect(self, x1, y1, x2, y2, fill="", outline="", width=1,
                   tag="slide_content"):
@@ -2100,6 +2136,8 @@ class RadarSlide(SlideRenderer):
         cx = self.W // 2
         cy = (self.H - 60) // 2 + 60
         R  = min(self.W, self.H - 80) // 2 - 20
+        display_scale = max(1.0, self.canvas.winfo_width() / Config.WIN_WIDTH)
+        image_R = int(R * display_scale)
 
         # ── 背景圓形雷達底盤 ──────────────────────────────────
         self.canvas.create_oval(
@@ -2112,7 +2150,7 @@ class RadarSlide(SlideRenderer):
         rv_radar = self._get_rainviewer_radar_photo(
             float(self.data.get("lat", Config.LATITUDE)),
             float(self.data.get("lon", Config.LONGITUDE)),
-            R,
+            image_R,
         )
         real_radar = bool(rv_radar)
         if rv_radar:
@@ -2270,12 +2308,14 @@ class RadarSlide(SlideRenderer):
             font=(Config.FONT_FAMILY,9), anchor="e",
             tags=("radar","slide_content")
         )
+        self.apply_display_scale("radar")
 
     def _draw_map_layer(self, cx: int, cy: int, R: int):
         """Draw a real OpenStreetMap tile layer centered on the searched city."""
         lat = float(self.data.get("lat", Config.LATITUDE))
         lon = float(self.data.get("lon", Config.LONGITUDE))
-        photo = self._get_osm_map_photo(lat, lon, R)
+        display_scale = max(1.0, self.canvas.winfo_width() / Config.WIN_WIDTH)
+        photo = self._get_osm_map_photo(lat, lon, int(R * display_scale))
         if photo:
             self.map_photo = photo
             self.canvas.create_image(cx, cy, image=self.map_photo, tags=("radar","slide_content"))
@@ -2744,6 +2784,7 @@ class RetroCastApp:
             self.canvas.scale(item, 0, 0, scale, scale)
             if self.canvas.type(item) == "text":
                 self._scale_canvas_text_item(item, scale)
+            self._scale_canvas_width_item(item, scale)
             self.canvas.addtag_withtag("display_scaled", item)
 
     def _scale_canvas_text_item(self, item, scale: float):
@@ -2756,6 +2797,14 @@ class RetroCastApp:
             slant = font_obj.actual("slant")
             scaled_size = max(6, int(round(size * scale)))
             self.canvas.itemconfig(item, font=(family, scaled_size, weight, slant))
+        except Exception:
+            pass
+
+    def _scale_canvas_width_item(self, item, scale: float):
+        try:
+            width = self.canvas.itemcget(item, "width")
+            if width not in ("", None):
+                self.canvas.itemconfig(item, width=max(1, float(width) * scale))
         except Exception:
             pass
 
