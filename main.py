@@ -557,9 +557,11 @@ class WeatherData:
             "Tone: mandatory morale, employee productivity, liability disclaimers,\n"
             "company-town bureaucracy, brass-and-teal terminal announcements.\n"
             "Do not mention or copy any existing game title, faction, character, or universe.\n"
+            "Prioritize a useful integrated weather briefing over jokes.\n"
+            "Summarize current conditions, comfort, wind, rain risk, and near forecast.\n"
             "Use only the real weather data in the JSON. Do not invent numbers.\n"
-            "Return exactly 4 short English lines, each under 60 characters.\n"
-            "No bullet symbols, numbering, quotes, markdown, or extra explanation.\n\n"
+            "Return 6 to 9 compact English lines. Longer lines are acceptable.\n"
+            "No markdown, no bullets, no numbering, no extra explanation.\n\n"
             f"WEATHER DATA JSON:\n{json.dumps(payload, ensure_ascii=False)}"
         )
         try:
@@ -571,7 +573,7 @@ class WeatherData:
                     "stream": False,
                     "options": {
                         "temperature": 0.82,
-                        "num_predict": 120,
+                        "num_predict": 260,
                     },
                 },
                 timeout=25,
@@ -615,8 +617,8 @@ class WeatherData:
         for raw in text.replace("\r", "").split("\n"):
             line = raw.strip().lstrip("-*0123456789. )")
             if line:
-                lines.append(line[:62])
-            if len(lines) >= 4:
+                lines.append(line)
+            if len(lines) >= 12:
                 break
         return "\n".join(lines) if lines else text.strip()[:360]
 
@@ -1780,9 +1782,16 @@ class CityComparisonSlide(SlideRenderer):
 
 class AIWeatherSummarySlide(SlideRenderer):
     """Generated text weather summary using live city weather data."""
+    def __init__(self, canvas: tk.Canvas, config: Config):
+        super().__init__(canvas, config)
+        self.scroll_offset = 0
+        self.max_scroll = 0
+        self.current_data = {}
+
     def render(self, current: dict):
         self.clear()
         current = current or {}
+        self.current_data = dict(current)
         self.draw_header("CORPORATE WEATHER BRIEF", f"{Config.CITY.upper()} AUTHORIZED TERMINAL SUMMARY")
 
         summary = current.get("ai_summary") or {}
@@ -1814,20 +1823,59 @@ class AIWeatherSummarySlide(SlideRenderer):
                            color=Config.TEXT_YELLOW, size=8, bold=True, anchor="w")
             panel_top = 206
 
-        self.draw_rect(44, panel_top, self.W - 44, self.H - 92, fill="#0B141B", outline=Config.BORDER_COL, width=2)
-        lines = self._wrap_lines(text, max_chars=58)
+        panel_bottom = self.H - 92
+        self.draw_rect(44, panel_top, self.W - 44, panel_bottom, fill="#0B141B", outline=Config.BORDER_COL, width=2)
+        lines = self._wrap_lines(text, max_chars=74)
+        visible_count = max(3, int((panel_bottom - panel_top - 48) // 28))
+        self.max_scroll = max(0, len(lines) - visible_count)
+        self.scroll_offset = max(0, min(self.scroll_offset, self.max_scroll))
+        visible_lines = lines[self.scroll_offset:self.scroll_offset + visible_count]
         y = panel_top + 38
-        for idx, line in enumerate(lines[:7]):
-            color = Config.TEXT_YELLOW if idx == 0 else Config.TEXT_WHITE
-            self.draw_text(72, y, line, color=color, size=13,
-                           bold=(idx == 0), anchor="w")
-            y += 34
+        for idx, line in enumerate(visible_lines):
+            actual_idx = self.scroll_offset + idx
+            color = Config.TEXT_YELLOW if actual_idx == 0 else Config.TEXT_WHITE
+            self.draw_text(72, y, line, color=color, size=11,
+                           bold=(actual_idx == 0), anchor="w")
+            y += 28
+        if self.max_scroll > 0:
+            self._draw_scrollbar(panel_top, panel_bottom, visible_count, len(lines))
 
         self.draw_rect(62, self.H - 72, self.W - 62, self.H - 44, fill=Config.BG_WARM,
                        outline=Config.BORDER_COL, width=1)
         self.draw_text(self.W // 2, self.H - 58,
-                       "BRIEFING USES LIVE SEARCHED CITY DATA; NUMBERS REMAIN COMPANY PROPERTY.",
+                       "SCROLL BRIEFING WITH MOUSE WHEEL / TRACKPAD. LIVE NUMBERS REMAIN COMPANY PROPERTY.",
                        color=Config.TEXT_YELLOW, size=8, bold=True)
+
+    def bind_scroll(self):
+        self.canvas.bind("<MouseWheel>", self._on_mousewheel)
+        self.canvas.bind("<Button-4>", lambda _e: self._scroll(-1))
+        self.canvas.bind("<Button-5>", lambda _e: self._scroll(1))
+
+    def _on_mousewheel(self, event):
+        delta = -1 if event.delta > 0 else 1
+        self._scroll(delta)
+
+    def _scroll(self, delta: int):
+        if self.max_scroll <= 0:
+            return
+        new_offset = max(0, min(self.max_scroll, self.scroll_offset + delta))
+        if new_offset != self.scroll_offset:
+            self.scroll_offset = new_offset
+            self.render(self.current_data)
+
+    def _draw_scrollbar(self, panel_top: int, panel_bottom: int, visible_count: int, total_lines: int):
+        track_x = self.W - 68
+        track_top = panel_top + 20
+        track_bottom = panel_bottom - 20
+        track_h = max(1, track_bottom - track_top)
+        thumb_h = max(24, int(track_h * visible_count / max(visible_count, total_lines)))
+        travel = max(1, track_h - thumb_h)
+        thumb_y = track_top + int(travel * self.scroll_offset / max(1, self.max_scroll))
+        self.draw_rect(track_x, track_top, track_x + 8, track_bottom, fill="#061015", outline="#24414A", width=1)
+        self.draw_rect(track_x, thumb_y, track_x + 8, thumb_y + thumb_h,
+                       fill=Config.TEXT_CYAN, outline="")
+        self.draw_text(track_x + 4, track_top - 10, "▲", color=Config.TEXT_CYAN, size=7, bold=True)
+        self.draw_text(track_x + 4, track_bottom + 10, "▼", color=Config.TEXT_CYAN, size=7, bold=True)
 
     @staticmethod
     def _wrap_lines(text: str, max_chars: int = 72) -> list:
@@ -2504,6 +2552,7 @@ class RetroCastApp:
         self._did_initial_announce = False
         self._reset_to_first_after_refresh = False
         self.rotation_paused = False
+        self.is_fullscreen = False
         self.loading_active = False
         self.loading_percent = 0
         self.loading_status = ""
@@ -2524,6 +2573,7 @@ class RetroCastApp:
         self.root.configure(bg=Config.BG_DARK)
         # 綁定 ESC 鍵退出
         self.root.bind("<Escape>", lambda e: self.quit())
+        self.root.bind("<F11>", lambda e: self._toggle_fullscreen())
         self.root.protocol("WM_DELETE_WINDOW", self.quit)
 
     def _setup_custom_font(self):
@@ -3249,11 +3299,16 @@ class RetroCastApp:
         )
         self.pause_btn.grid(row=0, column=4, padx=5, pady=9, sticky="w")
 
+        self.fullscreen_btn = tk.Button(
+            self.control_frame, text="FULL", command=self._toggle_fullscreen, **btn_cfg
+        )
+        self.fullscreen_btn.grid(row=0, column=5, padx=5, pady=9, sticky="w")
+
         # 強制重新整理 API
         refresh_btn = tk.Button(
             self.control_frame, text="REFRESH", command=self._manual_refresh, **btn_cfg
         )
-        refresh_btn.grid(row=0, column=5, padx=5, pady=9, sticky="w")
+        refresh_btn.grid(row=0, column=6, padx=5, pady=9, sticky="w")
 
         self.search_var = tk.StringVar(value=Config.CITY)
         search_label = tk.Label(
@@ -3261,7 +3316,7 @@ class RetroCastApp:
             bg="#070A08", fg=Config.TEXT_ORANGE,
             font=(Config.FONT_FAMILY, 9, "bold")
         )
-        search_label.grid(row=0, column=6, padx=(12, 4), pady=9, sticky="e")
+        search_label.grid(row=0, column=7, padx=(10, 4), pady=9, sticky="e")
 
         self.search_entry = tk.Entry(
             self.control_frame,
@@ -3275,13 +3330,13 @@ class RetroCastApp:
             font=(Config.FONT_FAMILY, 9, "bold"),
             width=16,
         )
-        self.search_entry.grid(row=0, column=7, padx=4, pady=9, sticky="w")
+        self.search_entry.grid(row=0, column=8, padx=4, pady=9, sticky="w")
         self.search_entry.bind("<Return>", lambda _e: self._search_city())
 
         search_btn = tk.Button(
             self.control_frame, text="GO", command=self._search_city, **btn_cfg
         )
-        search_btn.grid(row=0, column=8, padx=(4, 10), pady=9, sticky="w")
+        search_btn.grid(row=0, column=9, padx=(4, 10), pady=9, sticky="w")
 
         # 看板名稱指示器
         self.slide_label = tk.Label(
@@ -3291,8 +3346,8 @@ class RetroCastApp:
             width=7,
             anchor="e"
         )
-        self.slide_label.grid(row=0, column=9, padx=(6, 18), pady=9, sticky="e")
-        self.control_frame.grid_columnconfigure(9, weight=1)
+        self.slide_label.grid(row=0, column=10, padx=(6, 18), pady=9, sticky="e")
+        self.control_frame.grid_columnconfigure(10, weight=1)
 
     # ── 真實載入進度 ──────────────────────────────────────────
     def _make_loading_progress_callback(self):
@@ -3422,6 +3477,9 @@ class RetroCastApp:
         # 停止雷達動畫（若正在執行）
         if hasattr(self, 'renderers'):
             self.renderers["radar"].stop()
+        self.canvas.unbind("<MouseWheel>")
+        self.canvas.unbind("<Button-4>")
+        self.canvas.unbind("<Button-5>")
 
         self.current_slide = idx % len(self.SLIDES)
         slide_key = self.SLIDES[self.current_slide]
@@ -3444,6 +3502,7 @@ class RetroCastApp:
             renderer.render(current)
         elif slide_key == "summary":
             renderer.render(current)
+            renderer.bind_scroll()
         elif slide_key == "hourly":
             renderer.render(hourly, current)
         elif slide_key == "ad":
@@ -3574,6 +3633,17 @@ class RetroCastApp:
             self.slide_label.config(text=f"{self.current_slide+1}/{len(self.SLIDES)}")
             self._schedule_next_slide()
             self.audio.announce("Slide rotation resumed.", "enable")
+
+    def _toggle_fullscreen(self):
+        """Toggle fullscreen display mode for classroom demos."""
+        self.is_fullscreen = not self.is_fullscreen
+        self.root.attributes("-fullscreen", self.is_fullscreen)
+        if hasattr(self, "fullscreen_btn"):
+            self.fullscreen_btn.config(text="WINDOW" if self.is_fullscreen else "FULL")
+        self.audio.announce(
+            "Fullscreen enabled." if self.is_fullscreen else "Windowed mode enabled.",
+            "enable"
+        )
 
     # ── 時鐘更新 ──────────────────────────────────────────────
     def _update_clock(self):
