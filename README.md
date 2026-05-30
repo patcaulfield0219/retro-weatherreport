@@ -5,14 +5,20 @@ Retro-future Tkinter weather terminal with live city search, Open-Meteo weather 
 ## Quick Start
 
 ```bash
-git clone <your-github-repo-url>
-cd arcadia-weather-terminal
+git clone https://github.com/patcaulfield0219/retro-weatherreport.git
+cd retro-weatherreport
 
 python3 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
 
 python3 main.py
+```
+
+macOS users can also double-click:
+
+```text
+run_macos.command
 ```
 
 On Windows PowerShell:
@@ -23,6 +29,22 @@ python -m venv .venv
 pip install -r requirements.txt
 python main.py
 ```
+
+Windows users can also double-click:
+
+```text
+run_windows.bat
+```
+
+## Setup Check
+
+If the app does not open, run:
+
+```bash
+python3 check_setup.py
+```
+
+This checks Python, required packages, bundled assets, Open-Meteo access, and whether Ollama is running.
 
 ## Optional Local Text Generation
 
@@ -46,6 +68,9 @@ python3 main.py
 ```text
 arcadia-weather-terminal/
 ├─ main.py
+├─ check_setup.py
+├─ run_macos.command
+├─ run_windows.bat
 ├─ requirements.txt
 ├─ config.example.json
 ├─ assets/
@@ -69,6 +94,79 @@ arcadia-weather-terminal/
 The app creates `retro_weather_config.json` automatically when settings are saved. That file is ignored by Git because it is local to each user.
 
 Use `config.example.json` as a reference if a teammate wants to reset or document their local settings.
+
+## Demo Controls
+
+- `PAUSE`: pause the automatic slide rotation for presentation.
+- `RESUME`: continue automatic rotation.
+- `PREV` / `NEXT`: manually move between pages.
+- `REFRESH`: fetch weather data again.
+- `CITY` + `GO`: search and lock a new city.
+- `MUSIC` / `SFX`: toggle background music and interface sounds.
+
+## Screenshots
+
+Add presentation screenshots to:
+
+```text
+docs/screenshots/
+```
+
+Recommended screenshots:
+
+- Startup city search
+- Current Conditions
+- Corporate Weather Brief
+- Hourly Timeline
+- Live Map Radar
+- Sponsored Corporate Message
+
+## Troubleshooting
+
+### `ModuleNotFoundError`
+
+Run:
+
+```bash
+pip install -r requirements.txt
+```
+
+### Windows PowerShell blocks virtual environment activation
+
+Run PowerShell as the current user and execute:
+
+```powershell
+Set-ExecutionPolicy -Scope CurrentUser RemoteSigned
+```
+
+Then activate again:
+
+```powershell
+.\.venv\Scripts\Activate.ps1
+```
+
+### `OLLAMA SUMMARY OFFLINE`
+
+The app still works. To enable generated briefings:
+
+```bash
+ollama pull llama3.2
+ollama serve
+```
+
+### No music or sound effects
+
+Run:
+
+```bash
+pip install pygame
+```
+
+Then restart the app.
+
+### Tkinter window does not open
+
+Make sure your Python install includes Tkinter. On macOS, the official Python installer from python.org usually includes it.
 
 ## Notes For Sharing
 

@@ -1359,10 +1359,16 @@ class CurrentWeatherSlide(SlideRenderer):
 
         # ── ASCII 天氣圖示（左上區域）────────────────────────
         ascii_art = data.get("ascii_art", [])
+        self.draw_rect(34, 76, 190, 178, fill="#061015", outline=Config.TEXT_CYAN, width=1)
         for i, line in enumerate(ascii_art):
-            self.draw_text(85, 75 + i * 22, line,
-                           color=Config.TEXT_CYAN, size=14, bold=True,
+            y = 94 + i * 20
+            self.draw_text(112, y + 1, line,
+                           color="#010504", size=15, bold=True,
                            font_family=Config.FONT_FAMILY)
+            self.draw_text(112, y, line,
+                           color="#76D7C4", size=15, bold=True,
+                           font_family=Config.FONT_FAMILY)
+        self.draw_text(112, 166, "WEATHER ICON", color="#93A8A2", size=7, bold=True)
 
         # ── 主溫度顯示（中央大字）────────────────────────────
         temp = data.get("temp", "--")
@@ -1881,6 +1887,34 @@ class CorporateAdSlide(SlideRenderer):
         return "THIS WEATHERCAST BROUGHT TO YOU BY CERTIFIED COLONY COMMERCE."
 
 
+class CreditsSlide(SlideRenderer):
+    """Project credits and data source explainer for demos."""
+    def render(self):
+        self.clear()
+        self.draw_header("SYSTEM CREDITS", "AUTHORIZED DATA SOURCES AND TERMINAL MODULES")
+        rows = [
+            ("WEATHER DATA", "Open-Meteo forecast, hourly, daily, and geocoding APIs"),
+            ("MAP DISPLAY", "OpenStreetMap tile layer centered on searched city coordinates"),
+            ("RADAR OVERLAY", "RainViewer public weather maps when live radar is available"),
+            ("LOCAL BRIEFING", "Ollama localhost model; fallback summary if offline"),
+            ("INTERFACE", "Python Tkinter Canvas with pygame audio and Pillow image handling"),
+            ("ASSETS", "Bundled audio, font, ad images, and logo files from project assets"),
+        ]
+        self.draw_rect(42, 84, self.W - 42, self.H - 86, fill="#0B141B", outline=Config.BORDER_COL, width=2)
+        for idx, (label, value) in enumerate(rows):
+            y = 126 + idx * 52
+            fill = "#111F2D" if idx % 2 == 0 else "#0C1720"
+            self.draw_rect(62, y - 20, self.W - 62, y + 20, fill=fill, outline="#253C42", width=1)
+            self.draw_text(86, y, label, color=Config.TEXT_YELLOW, size=12, bold=True, anchor="w")
+            self.draw_text(258, y, value[:62], color=Config.TEXT_WHITE, size=10, anchor="w")
+
+        self.draw_rect(72, self.H - 70, self.W - 72, self.H - 42,
+                       fill=Config.BG_WARM, outline=Config.BORDER_COL, width=1)
+        self.draw_text(self.W // 2, self.H - 56,
+                       "DEMO TIP: PRESS PAUSE ON ANY PAGE TO EXPLAIN THE MODULE CURRENTLY ON SCREEN.",
+                       color=Config.TEXT_YELLOW, size=8, bold=True)
+
+
 class RadarSlide(SlideRenderer):
     """
     看板三：降雨雷達圖（模擬動畫）
@@ -2381,7 +2415,7 @@ class RetroCastApp:
     """
 
     # 看板順序定義（可自由調整）
-    SLIDES = ["current", "summary", "hourly", "ad", "comparison", "observations", "forecast", "radar"]
+    SLIDES = ["current", "summary", "hourly", "ad", "comparison", "observations", "forecast", "radar", "credits"]
     SLIDE_NAMES = {
         "current"     : "Current",
         "summary"     : "Summary",
@@ -2391,6 +2425,7 @@ class RetroCastApp:
         "observations": "Observations",
         "forecast"    : "Forecast",
         "radar"       : "Radar",
+        "credits"      : "Credits",
     }
 
     def __init__(self):
@@ -2412,6 +2447,7 @@ class RetroCastApp:
         self.app_started    = False
         self._did_initial_announce = False
         self._reset_to_first_after_refresh = False
+        self.rotation_paused = False
         self.loading_active = False
         self.loading_percent = 0
         self.loading_status = ""
@@ -3152,11 +3188,16 @@ class RetroCastApp:
         )
         next_btn.grid(row=0, column=3, padx=5, pady=9, sticky="w")
 
+        self.pause_btn = tk.Button(
+            self.control_frame, text="PAUSE", command=self._toggle_rotation_pause, **btn_cfg
+        )
+        self.pause_btn.grid(row=0, column=4, padx=5, pady=9, sticky="w")
+
         # 強制重新整理 API
         refresh_btn = tk.Button(
             self.control_frame, text="REFRESH", command=self._manual_refresh, **btn_cfg
         )
-        refresh_btn.grid(row=0, column=4, padx=5, pady=9, sticky="w")
+        refresh_btn.grid(row=0, column=5, padx=5, pady=9, sticky="w")
 
         self.search_var = tk.StringVar(value=Config.CITY)
         search_label = tk.Label(
@@ -3164,7 +3205,7 @@ class RetroCastApp:
             bg="#070A08", fg=Config.TEXT_ORANGE,
             font=(Config.FONT_FAMILY, 9, "bold")
         )
-        search_label.grid(row=0, column=5, padx=(18, 4), pady=9, sticky="e")
+        search_label.grid(row=0, column=6, padx=(12, 4), pady=9, sticky="e")
 
         self.search_entry = tk.Entry(
             self.control_frame,
@@ -3178,13 +3219,13 @@ class RetroCastApp:
             font=(Config.FONT_FAMILY, 9, "bold"),
             width=16,
         )
-        self.search_entry.grid(row=0, column=6, padx=4, pady=9, sticky="w")
+        self.search_entry.grid(row=0, column=7, padx=4, pady=9, sticky="w")
         self.search_entry.bind("<Return>", lambda _e: self._search_city())
 
         search_btn = tk.Button(
             self.control_frame, text="GO", command=self._search_city, **btn_cfg
         )
-        search_btn.grid(row=0, column=7, padx=(4, 10), pady=9, sticky="w")
+        search_btn.grid(row=0, column=8, padx=(4, 10), pady=9, sticky="w")
 
         # 看板名稱指示器
         self.slide_label = tk.Label(
@@ -3194,8 +3235,8 @@ class RetroCastApp:
             width=7,
             anchor="e"
         )
-        self.slide_label.grid(row=0, column=8, padx=(6, 18), pady=9, sticky="e")
-        self.control_frame.grid_columnconfigure(8, weight=1)
+        self.slide_label.grid(row=0, column=9, padx=(6, 18), pady=9, sticky="e")
+        self.control_frame.grid_columnconfigure(9, weight=1)
 
     # ── 真實載入進度 ──────────────────────────────────────────
     def _make_loading_progress_callback(self):
@@ -3286,6 +3327,10 @@ class RetroCastApp:
 
     def _update_progress_bar(self):
         """更新進度條動畫"""
+        if self.rotation_paused:
+            self.canvas.itemconfig(self.pb_fg, fill=Config.TEXT_GREEN)
+            self.root.after(100, self._update_progress_bar)
+            return
         elapsed = time.time() - self.pb_start
         ratio   = min(elapsed / Config.SLIDE_INTERVAL, 1.0)
         pb_w    = int(Config.WIN_WIDTH * ratio)
@@ -3312,6 +3357,7 @@ class RetroCastApp:
             "observations": LocalObservationsSlide(self.canvas, Config),
             "forecast"    : ForecastSlide(self.canvas, Config),
             "radar"       : RadarSlide(self.canvas, Config),
+            "credits"      : CreditsSlide(self.canvas, Config),
         }
 
     # ── 看板顯示邏輯 ──────────────────────────────────────────
@@ -3354,6 +3400,8 @@ class RetroCastApp:
             renderer.render(forecast)
         elif slide_key == "radar":
             renderer.render(current)
+        elif slide_key == "credits":
+            renderer.render()
 
         self._draw_live_clock()
         self._play_transition_effect()
@@ -3423,6 +3471,9 @@ class RetroCastApp:
         """排程下一次自動換頁"""
         if self.slide_after_id:
             self.root.after_cancel(self.slide_after_id)
+            self.slide_after_id = None
+        if self.rotation_paused:
+            return
         self.slide_after_id = self.root.after(
             Config.SLIDE_INTERVAL * 1000,
             self._auto_next_slide
@@ -3430,6 +3481,9 @@ class RetroCastApp:
 
     def _auto_next_slide(self):
         """自動輪播：切換到下一張"""
+        if self.rotation_paused:
+            self.slide_after_id = None
+            return
         self.show_slide(self.current_slide + 1)
         self._schedule_next_slide()
 
@@ -3437,6 +3491,7 @@ class RetroCastApp:
         """手動：下一張"""
         if self.slide_after_id:
             self.root.after_cancel(self.slide_after_id)
+            self.slide_after_id = None
         self.show_slide(self.current_slide + 1)
         self._schedule_next_slide()
 
@@ -3444,8 +3499,25 @@ class RetroCastApp:
         """手動：上一張"""
         if self.slide_after_id:
             self.root.after_cancel(self.slide_after_id)
+            self.slide_after_id = None
         self.show_slide(self.current_slide - 1)
         self._schedule_next_slide()
+
+    def _toggle_rotation_pause(self):
+        """Pause/resume automatic slide rotation for live demos."""
+        self.rotation_paused = not self.rotation_paused
+        if self.rotation_paused:
+            if self.slide_after_id:
+                self.root.after_cancel(self.slide_after_id)
+                self.slide_after_id = None
+            self.pause_btn.config(text="RESUME")
+            self.slide_label.config(text="PAUSED")
+            self.audio.announce("Slide rotation paused.", "enable")
+        else:
+            self.pause_btn.config(text="PAUSE")
+            self.slide_label.config(text=f"{self.current_slide+1}/{len(self.SLIDES)}")
+            self._schedule_next_slide()
+            self.audio.announce("Slide rotation resumed.", "enable")
 
     # ── 時鐘更新 ──────────────────────────────────────────────
     def _update_clock(self):
@@ -3504,6 +3576,8 @@ class RetroCastApp:
                 self._schedule_next_slide()
             else:
                 self.show_slide(self.current_slide)
+                if not self.rotation_paused and not self.slide_after_id:
+                    self._schedule_next_slide()
 
         self.root.after(0, _ui_update)  # 確保在主執行緒執行 UI 更新
 
@@ -3584,11 +3658,12 @@ class RetroCastApp:
         temp = current.get("temp", "--") if current else "--"
         messages = {
             "current": f"Current conditions for {city}. Temperature {temp} degrees.",
-            "summary": "AI weather summary display is now on screen.",
+            "summary": "Corporate weather brief is now on screen.",
             "ad": "Sponsored corporate message.",
             "observations": "Regional observation table is now on screen.",
             "forecast": "Extended forecast display.",
             "radar": "Simulated radar sweep is now active.",
+            "credits": "System credits and data sources.",
         }
         return messages.get(slide_key, "Weather display updated.")
 
