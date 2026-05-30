@@ -133,6 +133,7 @@ class Config:
     RAINVIEWER_ZOOM    = 6
     OLLAMA_API_URL     = "http://localhost:11434/api/generate"
     OLLAMA_MODEL       = "llama3.2"
+    OLLAMA_TIMEOUT     = 60
 
     # ── 企業廣告素材 ─────────────────────────────────────────
     AD_IMAGE_PATHS = [
@@ -536,6 +537,26 @@ class WeatherData:
     def generate_weather_summary(self, current: dict, forecast: list, hourly: list) -> dict:
         """Generate an AI weather summary with local Ollama when available."""
         fallback = self.local_weather_summary(current, forecast, hourly)
+        next_hours = [
+            {
+                "time": h.get("time"),
+                "temp": h.get("temp"),
+                "pop": h.get("pop"),
+                "wind": h.get("wind"),
+                "humidity": h.get("humidity"),
+            }
+            for h in hourly[:4]
+        ]
+        near_forecast = [
+            {
+                "day": d.get("weekday") or d.get("date"),
+                "weather": d.get("description"),
+                "high_c": d.get("temp_max"),
+                "low_c": d.get("temp_min"),
+                "pop": d.get("pop"),
+            }
+            for d in forecast[:1]
+        ]
         payload = {
             "city": current.get("city", Config.CITY),
             "country": current.get("country", Config.COUNTRY),
@@ -547,9 +568,11 @@ class WeatherData:
             "wind_kmh": current.get("wind_speed"),
             "cloud_cover_percent": current.get("clouds"),
             "pressure_hpa": current.get("pressure"),
-            "alert": current.get("alert", {}),
-            "next_hours": hourly[:5],
-            "forecast": forecast[:2],
+            "alert_level": current.get("alert", {}).get("level"),
+            "alert_message": current.get("alert", {}).get("message"),
+            "rain_probability_percent": current.get("alert", {}).get("pop"),
+            "next_hours": next_hours,
+            "forecast": near_forecast,
         }
         prompt = (
             "You are writing text for a retro-future corporate colony weather terminal.\n"
@@ -560,7 +583,7 @@ class WeatherData:
             "Prioritize a useful integrated weather briefing over jokes.\n"
             "Summarize current conditions, comfort, wind, rain risk, and near forecast.\n"
             "Use only the real weather data in the JSON. Do not invent numbers.\n"
-            "Return 6 to 9 compact English lines. Longer lines are acceptable.\n"
+            "Return 5 to 7 compact English lines. Keep it under 120 words.\n"
             "No markdown, no bullets, no numbering, no extra explanation.\n\n"
             f"WEATHER DATA JSON:\n{json.dumps(payload, ensure_ascii=False)}"
         )
@@ -573,10 +596,10 @@ class WeatherData:
                     "stream": False,
                     "options": {
                         "temperature": 0.82,
-                        "num_predict": 260,
+                        "num_predict": 170,
                     },
                 },
-                timeout=25,
+                timeout=Config.OLLAMA_TIMEOUT,
             )
             resp.raise_for_status()
             raw = resp.json()
