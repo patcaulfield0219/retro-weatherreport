@@ -553,10 +553,13 @@ class WeatherData:
         }
         prompt = (
             "You are writing text for a retro-future corporate colony weather terminal.\n"
-            "Style: dry, witty, mildly satirical, useful, 1950s space-age office propaganda.\n"
-            "Do not mention or copy any existing game title, copyrighted faction, or named universe.\n"
+            "Style: cheerful corporate space-colony propaganda with dry satire.\n"
+            "Tone: mandatory morale, employee productivity, liability disclaimers,\n"
+            "company-town bureaucracy, brass-and-teal terminal announcements.\n"
+            "Do not mention or copy any existing game title, faction, character, or universe.\n"
             "Use only the real weather data in the JSON. Do not invent numbers.\n"
-            "Return exactly 4 short English lines, each under 72 characters. No bullet symbols.\n\n"
+            "Return exactly 4 short English lines, each under 60 characters.\n"
+            "No bullet symbols, numbering, quotes, markdown, or extra explanation.\n\n"
             f"WEATHER DATA JSON:\n{json.dumps(payload, ensure_ascii=False)}"
         )
         try:
@@ -567,8 +570,8 @@ class WeatherData:
                     "prompt": prompt,
                     "stream": False,
                     "options": {
-                        "temperature": 0.75,
-                        "num_predict": 150,
+                        "temperature": 0.82,
+                        "num_predict": 120,
                     },
                 },
                 timeout=25,
@@ -612,7 +615,7 @@ class WeatherData:
         for raw in text.replace("\r", "").split("\n"):
             line = raw.strip().lstrip("-*0123456789. )")
             if line:
-                lines.append(line[:76])
+                lines.append(line[:62])
             if len(lines) >= 4:
                 break
         return "\n".join(lines) if lines else text.strip()[:360]
@@ -1357,18 +1360,10 @@ class CurrentWeatherSlide(SlideRenderer):
         city_name = f"{data.get('city','').upper()}, {data.get('country','')}"
         self.draw_header("CURRENT CONDITIONS", city_name)
 
-        # ── ASCII 天氣圖示（左上區域）────────────────────────
-        ascii_art = data.get("ascii_art", [])
+        # ── 復古終端機天氣符號（左上區域）────────────────────
         self.draw_rect(34, 76, 190, 178, fill="#061015", outline=Config.TEXT_CYAN, width=1)
-        for i, line in enumerate(ascii_art):
-            y = 94 + i * 20
-            self.draw_text(112, y + 1, line,
-                           color="#010504", size=15, bold=True,
-                           font_family=Config.FONT_FAMILY)
-            self.draw_text(112, y, line,
-                           color="#76D7C4", size=15, bold=True,
-                           font_family=Config.FONT_FAMILY)
-        self.draw_text(112, 166, "WEATHER ICON", color="#93A8A2", size=7, bold=True)
+        self._draw_terminal_weather_glyph(data.get("weather_id", 3))
+        self.draw_text(112, 166, "ATMOSPHERIC GLYPH", color="#93A8A2", size=7, bold=True)
 
         # ── 主溫度顯示（中央大字）────────────────────────────
         temp = data.get("temp", "--")
@@ -1447,6 +1442,67 @@ class CurrentWeatherSlide(SlideRenderer):
         self.draw_text(3*self.W//4, y_bottom,
                        f"SUNSET  {data.get('sunset','--')}",
                        color=Config.TEXT_ORANGE, size=12)
+
+    def _draw_terminal_weather_glyph(self, weather_id: int):
+        """Draw a stable Canvas weather glyph instead of fragile ASCII art."""
+        cx, cy = 112, 119
+        tags = ("slide_content",)
+        glow = "#123A36"
+        cyan = "#76D7C4"
+        amber = Config.TEXT_YELLOW
+        rain = Config.TEXT_CYAN
+        snow = Config.TEXT_WHITE
+
+        def line(x1, y1, x2, y2, color=cyan, width=2):
+            self.canvas.create_line(x1, y1, x2, y2, fill=color, width=width, tags=tags)
+
+        def oval(x1, y1, x2, y2, outline=cyan, width=2, fill=""):
+            self.canvas.create_oval(x1, y1, x2, y2, outline=outline, width=width, fill=fill, tags=tags)
+
+        def rect(x1, y1, x2, y2, outline=cyan, width=2, fill=""):
+            self.canvas.create_rectangle(x1, y1, x2, y2, outline=outline, width=width, fill=fill, tags=tags)
+
+        def cloud():
+            oval(cx - 48, cy - 3, cx - 18, cy + 27, outline=glow, width=5)
+            oval(cx - 30, cy - 18, cx + 10, cy + 27, outline=glow, width=5)
+            oval(cx - 2, cy - 8, cx + 40, cy + 28, outline=glow, width=5)
+            line(cx - 46, cy + 24, cx + 42, cy + 24, glow, 5)
+            oval(cx - 48, cy - 3, cx - 18, cy + 27)
+            oval(cx - 30, cy - 18, cx + 10, cy + 27)
+            oval(cx - 2, cy - 8, cx + 40, cy + 28)
+            line(cx - 46, cy + 24, cx + 42, cy + 24)
+
+        if weather_id == 0:
+            oval(cx - 24, cy - 24, cx + 24, cy + 24, outline=amber, width=3)
+            for angle in range(0, 360, 45):
+                r1, r2 = 34, 46
+                x1 = cx + math.cos(math.radians(angle)) * r1
+                y1 = cy + math.sin(math.radians(angle)) * r1
+                x2 = cx + math.cos(math.radians(angle)) * r2
+                y2 = cy + math.sin(math.radians(angle)) * r2
+                line(x1, y1, x2, y2, amber, 2)
+            self.draw_text(cx, cy, "SOL", color=amber, size=10, bold=True)
+        elif weather_id in (1, 2):
+            oval(cx - 46, cy - 38, cx - 6, cy + 2, outline=amber, width=2)
+            cloud()
+        else:
+            cloud()
+
+        if weather_id in (45, 48):
+            for offset in (34, 44, 54):
+                line(cx - 46, cy + offset - 12, cx + 46, cy + offset - 12, rain, 2)
+        elif weather_id in (51, 53, 55, 56, 57, 61, 63, 65, 66, 67, 80, 81, 82):
+            for x in (cx - 32, cx - 12, cx + 8, cx + 28):
+                line(x, cy + 36, x - 8, cy + 52, rain, 2)
+        elif weather_id in (71, 73, 75, 77, 85, 86):
+            for x in (cx - 30, cx - 8, cx + 14, cx + 34):
+                line(x - 5, cy + 42, x + 5, cy + 42, snow, 2)
+                line(x, cy + 37, x, cy + 47, snow, 2)
+        elif weather_id in (95, 96, 99):
+            points = [cx - 5, cy + 32, cx - 20, cy + 58, cx + 0, cy + 52, cx - 10, cy + 74, cx + 22, cy + 42, cx + 4, cy + 48]
+            self.canvas.create_line(*points, fill=Config.TEXT_RED, width=3, tags=tags)
+
+        rect(54, 88, 170, 150, outline="#24414A", width=1)
 
 
 class ForecastSlide(SlideRenderer):
