@@ -2553,6 +2553,7 @@ class RetroCastApp:
         self._reset_to_first_after_refresh = False
         self.rotation_paused = False
         self.is_fullscreen = False
+        self.display_scale = 1.0
         self.loading_active = False
         self.loading_percent = 0
         self.loading_status = ""
@@ -2670,10 +2671,70 @@ class RetroCastApp:
             bg=Config.BG_DARK,
             highlightthickness=0
         )
-        self.canvas.pack(side="top", fill="x")
+        self.canvas.pack(side="top")
 
     def _canvas_height(self):
         return Config.WIN_HEIGHT - Config.MARQUEE_HEIGHT - Config.CONTROL_HEIGHT
+
+    def _scaled(self, value: float) -> int:
+        return int(round(value * self.display_scale))
+
+    def _configure_scaled_layout(self):
+        """Resize the visible shell while keeping the original 800x600 ratio."""
+        canvas_h = Config.WIN_HEIGHT - Config.MARQUEE_HEIGHT - Config.CONTROL_HEIGHT
+        self.canvas.configure(
+            width=self._scaled(Config.WIN_WIDTH),
+            height=self._scaled(canvas_h),
+        )
+        if hasattr(self, "control_frame"):
+            self.control_frame.configure(height=self._scaled(Config.CONTROL_HEIGHT))
+        if hasattr(self, "marquee_frame"):
+            self.marquee_frame.configure(height=self._scaled(Config.MARQUEE_HEIGHT))
+        if hasattr(self, "marquee_canvas"):
+            self.marquee_canvas.configure(height=self._scaled(Config.MARQUEE_HEIGHT))
+            self._refresh_marquee_text()
+        self._configure_control_fonts()
+
+    def _configure_control_fonts(self):
+        if not hasattr(self, "control_frame"):
+            return
+        for child in self.control_frame.winfo_children():
+            try:
+                if isinstance(child, tk.Entry):
+                    child.configure(font=(Config.FONT_FAMILY, self._scaled(9), "bold"), width=16)
+                elif isinstance(child, tk.Label):
+                    child.configure(font=(Config.FONT_FAMILY, self._scaled(8), "bold"))
+                elif isinstance(child, tk.Button):
+                    child.configure(font=(Config.FONT_FAMILY, self._scaled(9), "bold"))
+            except tk.TclError:
+                pass
+
+    def _scale_canvas_items_for_display(self):
+        """Scale newly drawn Canvas items for fullscreen demo mode."""
+        scale = self.display_scale
+        if abs(scale - 1.0) < 0.01 or not hasattr(self, "canvas"):
+            return
+        for item in self.canvas.find_all():
+            tags = self.canvas.gettags(item)
+            if "display_scaled" in tags:
+                continue
+            self.canvas.scale(item, 0, 0, scale, scale)
+            if self.canvas.type(item) == "text":
+                self._scale_canvas_text_item(item, scale)
+            self.canvas.addtag_withtag("display_scaled", item)
+
+    def _scale_canvas_text_item(self, item, scale: float):
+        try:
+            font_spec = self.canvas.itemcget(item, "font")
+            font_obj = tkfont.Font(root=self.root, font=font_spec)
+            family = font_obj.actual("family")
+            size = abs(int(font_obj.actual("size") or 10))
+            weight = font_obj.actual("weight")
+            slant = font_obj.actual("slant")
+            scaled_size = max(6, int(round(size * scale)))
+            self.canvas.itemconfig(item, font=(family, scaled_size, weight, slant))
+        except Exception:
+            pass
 
     def _load_logo_photo(self, key: str, max_size=(80, 44), opacity: float = 1.0):
         """Load a branded logo asset as a Tk image with optional sizing."""
@@ -3189,14 +3250,15 @@ class RetroCastApp:
             return
 
         try:
-            self.marquee_x -= Config.MARQUEE_SPEED
-            self.marquee_canvas.move("marquee_item", -Config.MARQUEE_SPEED, 0)
+            speed = max(1, self._scaled(Config.MARQUEE_SPEED))
+            self.marquee_x -= speed
+            self.marquee_canvas.move("marquee_item", -speed, 0)
             # 取得文字寬度，超出左邊後重置
             bbox = self.marquee_canvas.bbox("marquee_item")
             if bbox and bbox[2] < 0:  # 文字完全移出左側
-                dx = Config.WIN_WIDTH - bbox[0]
+                dx = self._scaled(Config.WIN_WIDTH) - bbox[0]
                 self.marquee_canvas.move("marquee_item", dx, 0)
-                self.marquee_x = Config.WIN_WIDTH
+                self.marquee_x = self._scaled(Config.WIN_WIDTH)
         except tk.TclError:
             self.marquee_after_id = None
             return
@@ -3218,36 +3280,40 @@ class RetroCastApp:
         self.marquee_canvas.delete("marquee_item")
         self.marquee_logo_refs = []
         self.marquee_items = []
-        x = Config.WIN_WIDTH
-        y = Config.MARQUEE_HEIGHT // 2
+        x = self._scaled(Config.WIN_WIDTH)
+        y = self._scaled(Config.MARQUEE_HEIGHT // 2)
         for _ in range(2):
             for logo_key, text in self.marquee_messages:
-                photo = self._load_logo_photo(logo_key, max_size=(26, 20), opacity=0.92)
+                photo = self._load_logo_photo(
+                    logo_key,
+                    max_size=(self._scaled(26), self._scaled(20)),
+                    opacity=0.92
+                )
                 if photo:
                     self.marquee_logo_refs.append(photo)
                     item = self.marquee_canvas.create_image(x, y, image=photo, anchor="w", tags=("marquee_item",))
                     self.marquee_items.append(item)
-                    x += 31
+                    x += self._scaled(31)
                 text_item = self.marquee_canvas.create_text(
                     x, y,
                     text=text,
                     fill=Config.TEXT_YELLOW,
-                    font=(Config.FONT_FAMILY, 12, "bold"),
+                    font=(Config.FONT_FAMILY, self._scaled(12), "bold"),
                     anchor="w",
                     tags=("marquee_item",)
                 )
                 self.marquee_items.append(text_item)
                 bbox = self.marquee_canvas.bbox(text_item)
-                x = (bbox[2] if bbox else x + len(text) * 8) + 34
+                x = (bbox[2] if bbox else x + len(text) * self._scaled(8)) + self._scaled(34)
                 sep = self.marquee_canvas.create_text(
                     x, y, text="//", fill=Config.TEXT_ORANGE,
-                    font=(Config.FONT_FAMILY, 11, "bold"), anchor="w",
+                    font=(Config.FONT_FAMILY, self._scaled(11), "bold"), anchor="w",
                     tags=("marquee_item",)
                 )
                 self.marquee_items.append(sep)
                 bbox = self.marquee_canvas.bbox(sep)
-                x = (bbox[2] if bbox else x + 18) + 34
-        self.marquee_x = Config.WIN_WIDTH
+                x = (bbox[2] if bbox else x + self._scaled(18)) + self._scaled(34)
+        self.marquee_x = self._scaled(Config.WIN_WIDTH)
 
     # ── 控制列設定 ────────────────────────────────────────────
     def _setup_controls(self):
@@ -3426,13 +3492,15 @@ class RetroCastApp:
         """底部進度條，顯示距離下次切換的剩餘時間"""
         pb_y = Config.WIN_HEIGHT - Config.MARQUEE_HEIGHT - Config.CONTROL_HEIGHT - 6
         self.pb_bg = self.canvas.create_rectangle(
-            0, pb_y, Config.WIN_WIDTH, pb_y + 4,
+            0, self._scaled(pb_y), self._scaled(Config.WIN_WIDTH), self._scaled(pb_y + 4),
             fill=Config.BG_PANEL, outline="", tags="progress"
         )
         self.pb_fg = self.canvas.create_rectangle(
-            0, pb_y, 0, pb_y + 4,
+            0, self._scaled(pb_y), 0, self._scaled(pb_y + 4),
             fill=Config.TEXT_CYAN, outline="", tags="progress"
         )
+        self.canvas.addtag_withtag("display_scaled", self.pb_bg)
+        self.canvas.addtag_withtag("display_scaled", self.pb_fg)
         self.pb_start  = time.time()
         self._update_progress_bar()
 
@@ -3444,9 +3512,9 @@ class RetroCastApp:
             return
         elapsed = time.time() - self.pb_start
         ratio   = min(elapsed / Config.SLIDE_INTERVAL, 1.0)
-        pb_w    = int(Config.WIN_WIDTH * ratio)
+        pb_w    = int(Config.WIN_WIDTH * ratio * self.display_scale)
         pb_y    = Config.WIN_HEIGHT - Config.MARQUEE_HEIGHT - Config.CONTROL_HEIGHT - 6
-        self.canvas.coords(self.pb_fg, 0, pb_y, pb_w, pb_y + 4)
+        self.canvas.coords(self.pb_fg, 0, self._scaled(pb_y), pb_w, self._scaled(pb_y + 4))
         # 顏色隨進度漸變：青→黃→橙
         if ratio < 0.5:
             col = Config.TEXT_CYAN
@@ -3524,6 +3592,7 @@ class RetroCastApp:
         self.canvas.tag_raise("progress")
         if self.loading_active:
             self._draw_loading_progress()
+        self._scale_canvas_items_for_display()
 
         # 重置進度條
         self.pb_start = time.time()
@@ -3637,9 +3706,22 @@ class RetroCastApp:
     def _toggle_fullscreen(self):
         """Toggle fullscreen display mode for classroom demos."""
         self.is_fullscreen = not self.is_fullscreen
-        self.root.attributes("-fullscreen", self.is_fullscreen)
+        if self.is_fullscreen:
+            screen_w = self.root.winfo_screenwidth()
+            screen_h = self.root.winfo_screenheight()
+            self.display_scale = max(1.0, min(screen_w / Config.WIN_WIDTH, screen_h / Config.WIN_HEIGHT))
+            self.root.attributes("-fullscreen", True)
+        else:
+            self.display_scale = 1.0
+            self.root.attributes("-fullscreen", False)
+            self.root.geometry(f"{Config.WIN_WIDTH}x{Config.WIN_HEIGHT}")
+        self._configure_scaled_layout()
         if hasattr(self, "fullscreen_btn"):
             self.fullscreen_btn.config(text="WINDOW" if self.is_fullscreen else "FULL")
+        if getattr(self, "app_started", False):
+            self.canvas.delete("display_scaled")
+            self._setup_progress_bar()
+            self.show_slide(self.current_slide)
         self.audio.announce(
             "Fullscreen enabled." if self.is_fullscreen else "Windowed mode enabled.",
             "enable"
@@ -3672,6 +3754,7 @@ class RetroCastApp:
             tags=("clock_text", "slide_content")
         )
         self.canvas.tag_raise("clock_text")
+        self._scale_canvas_items_for_display()
 
     # ── API 資料更新 ──────────────────────────────────────────
     def _on_data_refreshed(self, success: bool):
