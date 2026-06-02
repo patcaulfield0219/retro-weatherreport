@@ -3236,14 +3236,31 @@ class RetroCastApp:
         scan_step = max(6, self._scaled(Config.CRT_SCAN_STEP))
         edge_scan_len = self._scaled(72)
 
-        # Soft darkened screen curvature: visible mostly at the edges.
-        for i, color in enumerate(("#020403", "#050806", "#08100C")):
-            inset = self._scaled(i * 10)
-            self.canvas.create_rectangle(
-                inset, inset, w - inset, h - inset,
-                outline=color, width=max(1, int(round((10 - i * 2) * scale))),
-                tags=("crt_ambience", "display_scaled")
+        # Soft edge brackets, not full rectangles; full outlines become intrusive
+        # when macOS fullscreen scales the terminal.
+        bracket = self._scaled(88)
+        for inset, color, width in (
+            (self._scaled(7), "#020403", 5),
+            (self._scaled(18), "#050806", 3),
+        ):
+            line_w = max(1, int(round(width * scale)))
+            corners = (
+                (inset, inset, 1, 1),
+                (w - inset, inset, -1, 1),
+                (inset, h - inset, 1, -1),
+                (w - inset, h - inset, -1, -1),
             )
+            for x, y, hx, vy in corners:
+                self.canvas.create_line(
+                    x, y, x + hx * bracket, y,
+                    fill=color, width=line_w,
+                    tags=("crt_ambience", "display_scaled")
+                )
+                self.canvas.create_line(
+                    x, y, x, y + vy * bracket,
+                    fill=color, width=line_w,
+                    tags=("crt_ambience", "display_scaled")
+                )
 
         # Sparse phosphor scan hints in the gutters, not across the content.
         for y in range(margin + (phase % scan_step), h - margin, scan_step):
@@ -3286,9 +3303,10 @@ class RetroCastApp:
         if standby and phase % 20 < 10:
             for x, y in ((margin, margin), (w - margin, margin), (margin, h - margin), (w - margin, h - margin)):
                 self.canvas.create_oval(
-                    x - 4, y - 4, x + 4, y + 4,
+                    x - self._scaled(4), y - self._scaled(4),
+                    x + self._scaled(4), y + self._scaled(4),
                     fill="#335F48", outline="", stipple="gray75",
-                    tags=("crt_ambience",)
+                    tags=("crt_ambience", "display_scaled")
                 )
 
         self.canvas.tag_raise("crt_ambience")
