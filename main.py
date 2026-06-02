@@ -1333,10 +1333,7 @@ class SlideRenderer:
 
     def apply_display_scale(self, tag: str = "slide_content"):
         """Scale Canvas items created in base 800x600 coordinates."""
-        try:
-            scale = max(1.0, self.canvas.winfo_width() / Config.WIN_WIDTH)
-        except tk.TclError:
-            return
+        scale = self._current_display_scale()
         if abs(scale - 1.0) < 0.01:
             return
         for item in self.canvas.find_withtag(tag):
@@ -1346,6 +1343,17 @@ class SlideRenderer:
             self.canvas.scale(item, 0, 0, scale, scale)
             self._scale_item_style(item, scale)
             self.canvas.addtag_withtag("display_scaled", item)
+
+    def _current_display_scale(self) -> float:
+        """Return the configured canvas scale, avoiding transient geometry jitter."""
+        try:
+            configured_w = float(self.canvas.cget("width"))
+            configured_h = float(self.canvas.cget("height"))
+        except (tk.TclError, ValueError):
+            return 1.0
+        if configured_w <= 0 or configured_h <= 0:
+            return 1.0
+        return max(1.0, min(configured_w / Config.WIN_WIDTH, configured_h / self.H))
 
     def _scale_item_style(self, item, scale: float):
         item_type = self.canvas.type(item)
@@ -2136,7 +2144,7 @@ class RadarSlide(SlideRenderer):
         cx = self.W // 2
         cy = (self.H - 60) // 2 + 60
         R  = min(self.W, self.H - 80) // 2 - 20
-        display_scale = max(1.0, self.canvas.winfo_width() / Config.WIN_WIDTH)
+        display_scale = self._current_display_scale()
         image_R = int(R * display_scale)
 
         # ── 背景圓形雷達底盤 ──────────────────────────────────
@@ -2314,7 +2322,7 @@ class RadarSlide(SlideRenderer):
         """Draw a real OpenStreetMap tile layer centered on the searched city."""
         lat = float(self.data.get("lat", Config.LATITUDE))
         lon = float(self.data.get("lon", Config.LONGITUDE))
-        display_scale = max(1.0, self.canvas.winfo_width() / Config.WIN_WIDTH)
+        display_scale = self._current_display_scale()
         photo = self._get_osm_map_photo(lat, lon, int(R * display_scale))
         if photo:
             self.map_photo = photo
@@ -3204,30 +3212,33 @@ class RetroCastApp:
         narrow scan sweep. It avoids dense noise over the data area.
         """
         self.canvas.delete("crt_ambience")
-        h = self._canvas_height()
-        w = Config.WIN_WIDTH
+        scale = self.display_scale
+        h = self._scaled(self._canvas_height())
+        w = self._scaled(Config.WIN_WIDTH)
         phase = self.crt_phase
-        margin = Config.BEZEL_SIZE + 8
+        margin = self._scaled(Config.BEZEL_SIZE + 8)
+        scan_step = max(6, self._scaled(Config.CRT_SCAN_STEP))
+        edge_scan_len = self._scaled(72)
 
         # Soft darkened screen curvature: visible mostly at the edges.
         for i, color in enumerate(("#020403", "#050806", "#08100C")):
-            inset = i * 10
+            inset = self._scaled(i * 10)
             self.canvas.create_rectangle(
                 inset, inset, w - inset, h - inset,
-                outline=color, width=10 - i * 2,
+                outline=color, width=max(1, int(round((10 - i * 2) * scale))),
                 tags=("crt_ambience",)
             )
 
         # Sparse phosphor scan hints in the gutters, not across the content.
-        for y in range(margin + (phase % Config.CRT_SCAN_STEP), h - margin, Config.CRT_SCAN_STEP):
+        for y in range(margin + (phase % scan_step), h - margin, scan_step):
             if y % 3 == 0:
                 self.canvas.create_line(
-                    margin, y, margin + 72, y,
-                    fill="#122019", width=1, tags=("crt_ambience",)
+                    margin, y, margin + edge_scan_len, y,
+                    fill="#122019", width=max(1, int(round(scale))), tags=("crt_ambience",)
                 )
                 self.canvas.create_line(
-                    w - margin - 72, y, w - margin, y,
-                    fill="#122019", width=1, tags=("crt_ambience",)
+                    w - margin - edge_scan_len, y, w - margin, y,
+                    fill="#122019", width=max(1, int(round(scale))), tags=("crt_ambience",)
                 )
 
         # One thin moving scan sweep after startup; the city-lock screen stays calmer.
@@ -3235,20 +3246,22 @@ class RetroCastApp:
             sweep_y = margin + ((phase * 5) % max(1, h - margin * 2))
             self.canvas.create_line(
                 margin, sweep_y, w - margin, sweep_y,
-                fill="#1B332A", width=1, tags=("crt_ambience",)
+                fill="#1B332A", width=max(1, int(round(scale))), tags=("crt_ambience",)
             )
 
         # Occasional horizontal sync tear, kept near outer thirds to preserve tables.
         if phase % 17 in (0, 1, 2):
             tear_y = margin + ((phase * 19) % max(1, h - margin * 2))
-            tear_len = 96 if standby else 64
+            tear_len = self._scaled(96 if standby else 64)
             self.canvas.create_rectangle(
-                margin + 16, tear_y, margin + 16 + tear_len, tear_y + 2,
+                margin + self._scaled(16), tear_y,
+                margin + self._scaled(16) + tear_len, tear_y + self._scaled(2),
                 fill=Config.TEXT_CYAN, outline="", stipple="gray75",
                 tags=("crt_ambience",)
             )
             self.canvas.create_rectangle(
-                w - margin - 16 - tear_len, tear_y + 4, w - margin - 16, tear_y + 6,
+                w - margin - self._scaled(16) - tear_len, tear_y + self._scaled(4),
+                w - margin - self._scaled(16), tear_y + self._scaled(6),
                 fill=Config.TEXT_ORANGE, outline="", stipple="gray75",
                 tags=("crt_ambience",)
             )
