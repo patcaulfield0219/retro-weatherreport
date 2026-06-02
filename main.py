@@ -2141,30 +2141,39 @@ class RadarSlide(SlideRenderer):
         """繪製單一雷達幀"""
         self.canvas.delete("radar")
 
-        cx = self.W // 2
-        cy = (self.H - 60) // 2 + 60
-        R  = min(self.W, self.H - 80) // 2 - 20
         display_scale = self._current_display_scale()
-        image_R = int(R * display_scale)
+        sx = lambda value: int(round(value * display_scale))
+        sw = lambda value: max(1, int(round(value * display_scale)))
+        font = lambda size, weight="normal": (
+            Config.FONT_FAMILY,
+            max(6, int(round(size * display_scale))),
+            weight,
+        )
+
+        cx = sx(self.W // 2)
+        cy = sx((self.H - 60) // 2 + 60)
+        R  = sx(min(self.W, self.H - 80) // 2 - 20)
+        scaled_W = sx(self.W)
+        scaled_H = sx(self.H)
 
         # ── 背景圓形雷達底盤 ──────────────────────────────────
         self.canvas.create_oval(
             cx - R, cy - R, cx + R, cy + R,
-            fill="#06130F", outline=Config.TEXT_GREEN, width=2,
-            tags=("radar", "slide_content")
+            fill="#06130F", outline=Config.TEXT_GREEN, width=sw(2),
+            tags=("radar", "slide_content", "display_scaled")
         )
 
         self._draw_map_layer(cx, cy, R)
         rv_radar = self._get_rainviewer_radar_photo(
             float(self.data.get("lat", Config.LATITUDE)),
             float(self.data.get("lon", Config.LONGITUDE)),
-            image_R,
+            R,
         )
         real_radar = bool(rv_radar)
         if rv_radar:
             self.radar_photo = rv_radar["photo"]
             self.canvas.create_image(cx, cy, image=self.radar_photo,
-                                     tags=("radar","slide_content"))
+                                     tags=("radar","slide_content", "display_scaled"))
             self.radar_status = "RAINVIEWER LIVE RADAR" if rv_radar.get("has_echo") else "RAINVIEWER LIVE RADAR: CLEAR"
             if not rv_radar.get("has_echo"):
                 self._draw_clear_radar_pattern(cx, cy, R)
@@ -2176,18 +2185,18 @@ class RadarSlide(SlideRenderer):
             r = int(R * ratio)
             self.canvas.create_oval(
                 cx - r, cy - r, cx + r, cy + r,
-                fill="", outline="#004400", width=1,
-                tags=("radar", "slide_content")
+                fill="", outline="#004400", width=sw(1),
+                tags=("radar", "slide_content", "display_scaled")
             )
 
         # ── 十字準星 ──────────────────────────────────────────
         self.canvas.create_line(
             cx - R, cy, cx + R, cy,
-            fill="#004400", width=1, tags=("radar","slide_content")
+            fill="#004400", width=sw(1), tags=("radar","slide_content", "display_scaled")
         )
         self.canvas.create_line(
             cx, cy - R, cx, cy + R,
-            fill="#004400", width=1, tags=("radar","slide_content")
+            fill="#004400", width=sw(1), tags=("radar","slide_content", "display_scaled")
         )
 
         # ── Forecast-driven precipitation overlay/fallback ────
@@ -2222,7 +2231,7 @@ class RadarSlide(SlideRenderer):
 
             # 強度隨時間脈動
             intensity = max(visual_intensity_floor, model_intensity * (0.72 + 0.28 * math.sin(t * 2 + seed)))
-            size      = int(12 + 44 * intensity)
+            size      = int(sw(12) + sw(44) * intensity)
             col_idx   = min(int(intensity * len(rain_colors)), len(rain_colors)-1)
 
             # 由外到內繪製多層漸層斑塊（模擬真實雷達回波）
@@ -2233,7 +2242,7 @@ class RadarSlide(SlideRenderer):
                     px - layer_r, py - layer_r,
                     px + layer_r, py + layer_r,
                     fill=layer_col, outline="",
-                    tags=("radar","slide_content"),
+                    tags=("radar","slide_content", "display_scaled"),
                     **overlay_stipple
                 )
 
@@ -2246,8 +2255,8 @@ class RadarSlide(SlideRenderer):
         ey = cy + int(R * math.sin(rad))
         self.canvas.create_line(
             cx, cy, ex, ey,
-            fill="#00FF00", width=2,
-            tags=("radar","slide_content")
+            fill="#00FF00", width=sw(2),
+            tags=("radar","slide_content", "display_scaled")
         )
 
         # 掃描殘影（拖尾效果，多條遞減透明的線）
@@ -2260,73 +2269,71 @@ class RadarSlide(SlideRenderer):
             trail_col = f"#00{g_val:02X}00"
             self.canvas.create_line(
                 cx, cy, tx, ty,
-                fill=trail_col, width=1,
-                tags=("radar","slide_content")
+                fill=trail_col, width=sw(1),
+                tags=("radar","slide_content", "display_scaled")
             )
 
         # ── 城市標記 ──────────────────────────────────────────
         self.canvas.create_oval(
-            cx-4, cy-4, cx+4, cy+4,
+            cx-sw(4), cy-sw(4), cx+sw(4), cy+sw(4),
             fill="#C9C2A5", outline=Config.TEXT_ORANGE,
-            tags=("radar","slide_content")
+            tags=("radar","slide_content", "display_scaled")
         )
-        info_y = min(cy + R + 18, self.H - 64)
+        info_y = min(cy + R + sw(18), scaled_H - sw(64))
         self.canvas.create_text(
             cx, info_y,
             text=f"{Config.CITY.upper()} STATION  {lat:+.3f}/{lon:+.3f}",
-            fill=Config.TEXT_WHITE, font=(Config.FONT_FAMILY, 9, "bold"),
-            anchor="center", tags=("radar","slide_content")
+            fill=Config.TEXT_WHITE, font=font(9, "bold"),
+            anchor="center", tags=("radar","slide_content", "display_scaled")
         )
         self.canvas.create_text(
-            cx, info_y + 16,
+            cx, info_y + sw(16),
             text=(f"{self.radar_status} // {radar_profile.get('pop', 0)}% MODEL"
                   if real_radar else
                   f"PRECIP MODEL {radar_profile.get('pop', 0)}% // {radar_profile.get('source', 'FORECAST MODEL')}"),
-            fill=Config.TEXT_YELLOW, font=(Config.FONT_FAMILY, 8, "bold"),
-            anchor="center", tags=("radar","slide_content")
+            fill=Config.TEXT_YELLOW, font=font(8, "bold"),
+            anchor="center", tags=("radar","slide_content", "display_scaled")
         )
 
         # ── 圖例 ──────────────────────────────────────────────
         legend_labels = ["LIGHT","RAIN","MOD","HEAVY","STORM","SEVERE"]
         legend_colors = rain_colors
-        lx = 30
-        ly = self.H - 80
+        lx = sw(30)
+        ly = scaled_H - sw(80)
         self.canvas.create_text(
-            lx, ly - 15, text="RADAR ECHO INTENSITY",
-            fill=Config.TEXT_WHITE, font=(Config.FONT_FAMILY,9,"bold"),
-            anchor="w", tags=("radar","slide_content")
+            lx, ly - sw(15), text="RADAR ECHO INTENSITY",
+            fill=Config.TEXT_WHITE, font=font(9, "bold"),
+            anchor="w", tags=("radar","slide_content", "display_scaled")
         )
         for i, (lbl, col) in enumerate(zip(legend_labels, legend_colors)):
-            bx = lx + i * 60
+            bx = lx + i * sw(60)
             self.canvas.create_rectangle(
-                bx, ly, bx+12, ly+12,
-                fill=col, outline="", tags=("radar","slide_content")
+                bx, ly, bx+sw(12), ly+sw(12),
+                fill=col, outline="", tags=("radar","slide_content", "display_scaled")
             )
             self.canvas.create_text(
-                bx+15, ly+6, text=lbl,
-                fill=Config.TEXT_WHITE, font=(Config.FONT_FAMILY,8),
-                anchor="w", tags=("radar","slide_content")
+                bx+sw(15), ly+sw(6), text=lbl,
+                fill=Config.TEXT_WHITE, font=font(8),
+                anchor="w", tags=("radar","slide_content", "display_scaled")
             )
 
         # ── 時間戳記 ──────────────────────────────────────────
         ts = datetime.datetime.now().strftime("UPDATED: %H:%M:%S")
         self.canvas.create_text(
-            self.W - 20, self.H - 60,
+            scaled_W - sw(20), scaled_H - sw(60),
             text=ts, fill=Config.TEXT_GREEN,
-            font=(Config.FONT_FAMILY,9), anchor="e",
-            tags=("radar","slide_content")
+            font=font(9), anchor="e",
+            tags=("radar","slide_content", "display_scaled")
         )
-        self.apply_display_scale("radar")
 
     def _draw_map_layer(self, cx: int, cy: int, R: int):
         """Draw a real OpenStreetMap tile layer centered on the searched city."""
         lat = float(self.data.get("lat", Config.LATITUDE))
         lon = float(self.data.get("lon", Config.LONGITUDE))
-        display_scale = self._current_display_scale()
-        photo = self._get_osm_map_photo(lat, lon, int(R * display_scale))
+        photo = self._get_osm_map_photo(lat, lon, R)
         if photo:
             self.map_photo = photo
-            self.canvas.create_image(cx, cy, image=self.map_photo, tags=("radar","slide_content"))
+            self.canvas.create_image(cx, cy, image=self.map_photo, tags=("radar","slide_content", "display_scaled"))
             return
 
         self._draw_fallback_map_layer(cx, cy, R, lat, lon)
@@ -2374,11 +2381,13 @@ class RadarSlide(SlideRenderer):
 
     def _draw_clear_radar_pattern(self, cx: int, cy: int, R: int):
         """Show that live radar loaded successfully even when no rain echo exists."""
+        display_scale = self._current_display_scale()
+        sw = lambda value: max(1, int(round(value * display_scale)))
         for r in range(36, R, 34):
             self.canvas.create_oval(
                 cx - r, cy - r, cx + r, cy + r,
-                outline="#0D3B2A", width=1,
-                tags=("radar", "slide_content")
+                outline="#0D3B2A", width=sw(1),
+                tags=("radar", "slide_content", "display_scaled")
             )
         for angle in range(0, 360, 45):
             rad = math.radians(angle)
@@ -2388,8 +2397,8 @@ class RadarSlide(SlideRenderer):
             y2 = cy + int(R * 0.92 * math.sin(rad))
             self.canvas.create_line(
                 x1, y1, x2, y2,
-                fill="#0A2E24", width=1,
-                tags=("radar", "slide_content")
+                fill="#0A2E24", width=sw(1),
+                tags=("radar", "slide_content", "display_scaled")
             )
 
     def _style_radar_overlay(self, image, R: int):
@@ -2534,13 +2543,20 @@ class RadarSlide(SlideRenderer):
 
     def _draw_fallback_map_layer(self, cx: int, cy: int, R: int, lat: float, lon: float):
         """Fallback map when tiles or Pillow are unavailable."""
+        display_scale = self._current_display_scale()
+        sw = lambda value: max(1, int(round(value * display_scale)))
+        font = lambda size, weight="normal": (
+            Config.FONT_FAMILY,
+            max(6, int(round(size * display_scale))),
+            weight,
+        )
         random.seed(int((lat + 90) * 1000) ^ int((lon + 180) * 1000))
 
         for offset in range(-3, 4):
             x = cx + int(offset * R / 4)
             y = cy + int(offset * R / 4)
-            self.canvas.create_line(x, cy - R, x, cy + R, fill="#123429", width=1, tags=("radar","slide_content"))
-            self.canvas.create_line(cx - R, y, cx + R, y, fill="#123429", width=1, tags=("radar","slide_content"))
+            self.canvas.create_line(x, cy - R, x, cy + R, fill="#123429", width=sw(1), tags=("radar","slide_content", "display_scaled"))
+            self.canvas.create_line(cx - R, y, cx + R, y, fill="#123429", width=sw(1), tags=("radar","slide_content", "display_scaled"))
 
         # Pseudo terrain / coast contours keyed to coordinates, so each searched city looks distinct.
         for band in range(3):
@@ -2556,7 +2572,7 @@ class RadarSlide(SlideRenderer):
             if len(pts) >= 4:
                 self.canvas.create_line(
                     *pts, fill=["#35634C", "#284D61", "#5F5936"][band],
-                    width=2, smooth=True, tags=("radar","slide_content")
+                    width=sw(2), smooth=True, tags=("radar","slide_content", "display_scaled")
                 )
 
         for idx in range(10):
@@ -2565,13 +2581,13 @@ class RadarSlide(SlideRenderer):
             px = cx + int(math.cos(angle) * dist)
             py = cy + int(math.sin(angle) * dist)
             if (px - cx) ** 2 + (py - cy) ** 2 <= (R - 10) ** 2:
-                self.canvas.create_rectangle(px - 2, py - 2, px + 2, py + 2, fill="#6C7F66", outline="", tags=("radar","slide_content"))
+                self.canvas.create_rectangle(px - sw(2), py - sw(2), px + sw(2), py + sw(2), fill="#6C7F66", outline="", tags=("radar","slide_content", "display_scaled"))
 
         self.canvas.create_text(
-            cx - R + 12, cy - R + 16,
+            cx - R + sw(12), cy - R + sw(16),
             text=f"MAP CENTER {lat:+.2f} / {lon:+.2f}",
-            fill="#93A8A2", font=(Config.FONT_FAMILY, 8, "bold"),
-            anchor="w", tags=("radar","slide_content")
+            fill="#93A8A2", font=font(8, "bold"),
+            anchor="w", tags=("radar","slide_content", "display_scaled")
         )
 
 
@@ -3226,7 +3242,7 @@ class RetroCastApp:
             self.canvas.create_rectangle(
                 inset, inset, w - inset, h - inset,
                 outline=color, width=max(1, int(round((10 - i * 2) * scale))),
-                tags=("crt_ambience",)
+                tags=("crt_ambience", "display_scaled")
             )
 
         # Sparse phosphor scan hints in the gutters, not across the content.
@@ -3234,11 +3250,11 @@ class RetroCastApp:
             if y % 3 == 0:
                 self.canvas.create_line(
                     margin, y, margin + edge_scan_len, y,
-                    fill="#122019", width=max(1, int(round(scale))), tags=("crt_ambience",)
+                    fill="#122019", width=max(1, int(round(scale))), tags=("crt_ambience", "display_scaled")
                 )
                 self.canvas.create_line(
                     w - margin - edge_scan_len, y, w - margin, y,
-                    fill="#122019", width=max(1, int(round(scale))), tags=("crt_ambience",)
+                    fill="#122019", width=max(1, int(round(scale))), tags=("crt_ambience", "display_scaled")
                 )
 
         # One thin moving scan sweep after startup; the city-lock screen stays calmer.
@@ -3246,7 +3262,7 @@ class RetroCastApp:
             sweep_y = margin + ((phase * 5) % max(1, h - margin * 2))
             self.canvas.create_line(
                 margin, sweep_y, w - margin, sweep_y,
-                fill="#1B332A", width=max(1, int(round(scale))), tags=("crt_ambience",)
+                fill="#1B332A", width=max(1, int(round(scale))), tags=("crt_ambience", "display_scaled")
             )
 
         # Occasional horizontal sync tear, kept near outer thirds to preserve tables.
@@ -3257,13 +3273,13 @@ class RetroCastApp:
                 margin + self._scaled(16), tear_y,
                 margin + self._scaled(16) + tear_len, tear_y + self._scaled(2),
                 fill=Config.TEXT_CYAN, outline="", stipple="gray75",
-                tags=("crt_ambience",)
+                tags=("crt_ambience", "display_scaled")
             )
             self.canvas.create_rectangle(
                 w - margin - self._scaled(16) - tear_len, tear_y + self._scaled(4),
                 w - margin - self._scaled(16), tear_y + self._scaled(6),
                 fill=Config.TEXT_ORANGE, outline="", stipple="gray75",
-                tags=("crt_ambience",)
+                tags=("crt_ambience", "display_scaled")
             )
 
         # Standby mode only breathes at the corners, without a left-to-right beam.
